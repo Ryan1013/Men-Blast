@@ -143,7 +143,7 @@ if st.button("Simulate Qualification Table"):
     if len(steelbacks_index) == 0:
         st.warning("⚠️ Northamptonshire Steelbacks Men not found in simulation.")
     else:
-        rank = steelbacks_index[0] + 1
+        rank = steelbacks_index[0]
         if rank <= 4:
             st.markdown(f"✅ **Northamptonshire Steelbacks Men QUALIFY** in position **{rank}** 🎉")
         else:
