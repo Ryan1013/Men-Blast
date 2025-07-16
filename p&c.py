@@ -179,7 +179,7 @@ steelbacks_index = final_display.index[final_display['Team'] == "Northamptonshir
 if not steelbacks_index:
     st.markdown("❌ Steelbacks not found in updated table")
 else:
-    rank = steelbacks_index[0] + 1
+    rank = steelbacks_index[0]
     if rank <= 4:
         st.markdown(f"✅ **Northamptonshire Steelbacks Men QUALIFY** in position **{rank}** 🎉")
     else:
