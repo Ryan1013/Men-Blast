@@ -1,189 +1,190 @@
 import streamlit as st
 import pandas as pd
 import itertools
-import numpy as np
-import io
 
-st.set_page_config(layout="wide")
+# ----------------------------
+# Helper Functions
+# ----------------------------
+def cricket_overs_from_balls(balls):
+    overs = balls // 6
+    balls_remaining = balls % 6
+    return float(f"{overs}.{balls_remaining}")
 
-st.title("🔢 Northamptonshire Steelbacks Qualification Simulator – Vitality Blast 2025")
+def cricket_balls_from_overs(overs):
+    parts = str(overs).split('.')
+    if len(parts) == 1:
+        return int(parts[0]) * 6
+    return int(parts[0]) * 6 + int(parts[1])
 
-# -----------------------
+def calculate_nrr(runs_for, balls_faced, runs_against, balls_bowled):
+    rr_for = runs_for / (balls_faced / 6)
+    rr_against = runs_against / (balls_bowled / 6)
+    return rr_for - rr_against
+
+# ----------------------------
 # Load Current Table
-# -----------------------
-@st.cache_data
-def load_current_table():
-    df = pd.read_csv("current_table.csv")
-    return df
+# ----------------------------
+current_table = pd.read_csv("current_table.csv")
+current_table = current_table.fillna(0)
 
-current_table = load_current_table()
-teams = current_table["Team"].tolist()
+# ----------------------------
+# App UI
+# ----------------------------
+st.title("Steelbacks Qualification Permutation Simulator")
+st.markdown("---")
 
-st.subheader("📊 Current Table (before simulation)")
-st.dataframe(current_table.style.format({"NRR": "{:+.3f}", "PT": "{:.0f}"}), use_container_width=True)
+# Display current standings
+st.markdown("### 📊 Current Table")
+st.dataframe(current_table.style.format({
+    "M": "{:.0f}", "W": "{:.0f}", "L": "{:.0f}", "T": "{:.0f}", "N/R": "{:.0f}", "PT": "{:.0f}", "NRR": "{:.3f}"
+}))
+st.markdown("---")
 
-# -----------------------
-# Define Remaining Fixtures
-# -----------------------
+# Fixtures to simulate
 fixtures = [
     ("17 July", "Worcestershire Rapids Men", "Notts Outlaws"),
     ("17 July", "Yorkshire Men", "Lancashire Lightning"),
     ("18 July", "Durham Cricket Men", "Northamptonshire Steelbacks Men"),
     ("18 July", "Leicestershire Foxes Men", "Yorkshire Men"),
     ("18 July", "Derbyshire Falcons Men", "Bears Men"),
-    ("18 July", "Notts Outlaws", "Lancashire Lightning"),
+    ("18 July", "Notts Outlaws", "Lancashire Lightning")
 ]
 
-# -----------------------
-# Simulation Inputs
-# -----------------------
-st.subheader("🧮 Simulate Remaining Matches")
+st.markdown("### 🧮 Predict Remaining Fixtures")
+outcomes = []
 
-simulation_results = []
-for i, (date, team1, team2) in enumerate(fixtures):
-    with st.expander(f"📅 {date}: {team1} vs {team2}"):
-        result = st.radio(
-            f"Match Result ({team1} vs {team2})", 
-            ["Not Played", f"{team1} Win (by runs)", f"{team2} Win (by runs)", 
-             f"{team1} Win (with balls remaining)", f"{team2} Win (with balls remaining)", "Tie", "No Result"], 
-            key=f"result_{i}"
-        )
+for date, team1, team2 in fixtures:
+    st.subheader(f"{date} - {team1} vs {team2}")
+    result = st.selectbox(f"Select result for {team1} vs {team2}",
+                          ["Not Played", f"{team1} Win (by runs)", f"{team2} Win (by runs)",
+                           f"{team1} Win (with balls remaining)", f"{team2} Win (with balls remaining)",
+                           "Tie", "No Result"], key=f"result_{team1}_{team2}")
 
-        if "by runs" in result:
-            score = st.slider(f"{result} – 1st Innings Total (Batting First)", 50, 300, 150, 1, key=f"score_{i}")
-            margin = st.slider("Win Margin (Runs)", 1, 200, 10, 1, key=f"margin_{i}")
-            simulation_results.append({
-                "team1": team1,
-                "team2": team2,
-                "result": result,
-                "score": score,
-                "margin": margin
-            })
+    match_info = {"team1": team1, "team2": team2, "result": result}
 
-        elif "balls remaining" in result:
-            balls_remaining = st.slider("Balls Remaining", 1, 120, 10, 1, key=f"balls_{i}")
-            chasing_runs = st.number_input("Runs Scored by Chasing Team", min_value=1, max_value=400, value=150, step=1, key=f"chasing_runs_{i}")
-            simulation_results.append({
-                "team1": team1,
-                "team2": team2,
-                "result": result,
-                "balls_remaining": balls_remaining,
-                "chasing_runs": chasing_runs
-            })
+    if "Win (by runs)" in result:
+        margin = st.number_input("Win margin (runs)", min_value=1, max_value=200, value=20, key=f"margin_{team1}_{team2}")
+        first_innings_runs = st.number_input("Runs scored by batting team (1st innings)", min_value=50, max_value=300, value=160, key=f"first_{team1}_{team2}")
+        match_info.update({"margin": margin, "first_innings_runs": first_innings_runs})
 
-        elif result in ["Tie", "No Result"]:
-            simulation_results.append({
-                "team1": team1,
-                "team2": team2,
-                "result": result
-            })
+    elif "Win (with balls remaining)" in result:
+        balls_remain = st.number_input("Balls Remaining", min_value=1, max_value=120, value=12, key=f"balls_{team1}_{team2}")
+        chasing_runs = st.number_input("Runs scored by chasing team", min_value=50, max_value=300, value=161, key=f"chase_{team1}_{team2}")
+        first_innings_runs = st.number_input("Runs scored by team batting first", min_value=50, max_value=300, value=160, key=f"firstrain_{team1}_{team2}")
+        match_info.update({"balls_remaining": balls_remain, "chasing_runs": chasing_runs, "first_innings_runs": first_innings_runs})
 
-# -----------------------
-# Simulation Logic
-# -----------------------
-def cricket_overs_from_balls(balls):
-    return round(balls // 6 + (balls % 6) / 10, 1)
+    outcomes.append(match_info)
 
-def calculate_nrr_table(current_table, sim_results):
-    df = current_table.copy()
-    df = df.set_index("Team")
-    df[["M", "W", "L", "T", "N/R", "PT"]] = df[["M", "W", "L", "T", "N/R", "PT"]].astype(int)
+# ----------------------------
+# Process Outcomes
+# ----------------------------
+# Clone original table to simulate
+sim_table = current_table.copy()
+sim_table.set_index("Team", inplace=True)
 
-    for sim in sim_results:
-        t1, t2 = sim["team1"], sim["team2"]
-        if sim["result"] == f"{t1} Win (by runs)":
-            runs_for = sim["score"]
-            runs_against = sim["score"] - sim["margin"]
-            overs = 20.0
-            df.loc[t1, "W"] += 1
-            df.loc[t2, "L"] += 1
-            df.loc[t1, "PT"] += 4
-        elif sim["result"] == f"{t2} Win (by runs)":
-            runs_for = sim["score"]
-            runs_against = sim["score"] - sim["margin"]
-            overs = 20.0
-            df.loc[t2, "W"] += 1
-            df.loc[t1, "L"] += 1
-            df.loc[t2, "PT"] += 4
-        elif sim["result"] == f"{t1} Win (with balls remaining)":
-            overs_used = (120 - sim["balls_remaining"])
-            overs = cricket_overs_from_balls(overs_used)
-            runs_for = sim["chasing_runs"]
-            runs_against = sim["chasing_runs"] - 1
-            df.loc[t1, "W"] += 1
-            df.loc[t2, "L"] += 1
-            df.loc[t1, "PT"] += 4
-        elif sim["result"] == f"{t2} Win (with balls remaining)":
-            overs_used = (120 - sim["balls_remaining"])
-            overs = cricket_overs_from_balls(overs_used)
-            runs_for = sim["chasing_runs"]
-            runs_against = sim["chasing_runs"] - 1
-            df.loc[t2, "W"] += 1
-            df.loc[t1, "L"] += 1
-            df.loc[t2, "PT"] += 4
-        elif sim["result"] == "Tie":
-            df.loc[t1, "T"] += 1
-            df.loc[t2, "T"] += 1
-            df.loc[[t1, t2], "PT"] += 2
-            continue
-        elif sim["result"] == "No Result":
-            df.loc[t1, "N/R"] += 1
-            df.loc[t2, "N/R"] += 1
-            df.loc[[t1, t2], "PT"] += 2
-            continue
-        else:
-            continue
+for outcome in outcomes:
+    if outcome['result'] == "Not Played":
+        continue
 
-        df.loc[t1, "M"] += 1
-        df.loc[t2, "M"] += 1
+    t1 = outcome['team1']
+    t2 = outcome['team2']
 
-        if sim["result"].startswith(t1):
-            df.loc[t1, "Runs For"] += runs_for
-            df.loc[t1, "Overs For"] += overs
-            df.loc[t1, "Runs Against"] += runs_against
-            df.loc[t1, "Overs Against"] += 20.0
-            df.loc[t2, "Runs For"] += runs_against
-            df.loc[t2, "Overs For"] += 20.0
-            df.loc[t2, "Runs Against"] += runs_for
-            df.loc[t2, "Overs Against"] += overs
-        else:
-            df.loc[t2, "Runs For"] += runs_for
-            df.loc[t2, "Overs For"] += overs
-            df.loc[t2, "Runs Against"] += runs_against
-            df.loc[t2, "Overs Against"] += 20.0
-            df.loc[t1, "Runs For"] += runs_against
-            df.loc[t1, "Overs For"] += 20.0
-            df.loc[t1, "Runs Against"] += runs_for
-            df.loc[t1, "Overs Against"] += overs
+    for t in [t1, t2]:
+        if t not in sim_table.index:
+            sim_table.loc[t] = [0, 0, 0, 0, 0, 0, 0, 0, 0.0, 0, 20.0, 0, 20.0]  # Fill defaults
 
-    df["NRR"] = ((df["Runs For"] / df["Overs For"]) - (df["Runs Against"] / df["Overs Against"])).round(3)
-    df = df.reset_index()
-    df = df.sort_values(by=["PT", "NRR"], ascending=[False, False]).reset_index(drop=True)
-    return df
+    sim_table.loc[t1, "M"] += 1
+    sim_table.loc[t2, "M"] += 1
 
-# -----------------------
-# Run Simulation
-# -----------------------
-if st.button("🚀 Run Simulation"):
-    updated_table = calculate_nrr_table(current_table, simulation_results)
-    st.subheader("📈 Updated Table After Simulation")
-    st.dataframe(updated_table.style.format({"NRR": "{:+.3f}", "PT": "{:.0f}"}), use_container_width=True)
+    if "by runs" in outcome["result"]:
+        winner = t1 if t1 in outcome['result'] else t2
+        loser = t2 if winner == t1 else t1
 
-    steelbacks_index = updated_table[updated_table["Team"] == "Northamptonshire Steelbacks Men"].index
-    if len(steelbacks_index) == 0:
-        st.warning("❗ Northamptonshire Steelbacks Men not found in table.")
+        first_innings_runs = outcome["first_innings_runs"]
+        win_margin = outcome["margin"]
+
+        loser_score = first_innings_runs
+        winner_score = first_innings_runs + win_margin
+
+        sim_table.loc[winner, "W"] += 1
+        sim_table.loc[loser, "L"] += 1
+        sim_table.loc[winner, "PT"] += 4
+
+        # Run Rate updates
+        sim_table.loc[winner, "Runs For"] += winner_score
+        sim_table.loc[winner, "Overs For"] += 20.0
+        sim_table.loc[winner, "Runs Against"] += loser_score
+        sim_table.loc[winner, "Overs Against"] += 20.0
+
+        sim_table.loc[loser, "Runs For"] += loser_score
+        sim_table.loc[loser, "Overs For"] += 20.0
+        sim_table.loc[loser, "Runs Against"] += winner_score
+        sim_table.loc[loser, "Overs Against"] += 20.0
+
+    elif "with balls remaining" in outcome["result"]:
+        winner = t1 if t1 in outcome['result'] else t2
+        loser = t2 if winner == t1 else t1
+
+        chasing_runs = outcome["chasing_runs"]
+        first_innings_runs = outcome["first_innings_runs"]
+        balls_remain = outcome["balls_remaining"]
+        balls_faced = 120 - balls_remain
+        overs_used = cricket_overs_from_balls(balls_faced)
+
+        sim_table.loc[winner, "W"] += 1
+        sim_table.loc[loser, "L"] += 1
+        sim_table.loc[winner, "PT"] += 4
+
+        # NRR updates
+        sim_table.loc[winner, "Runs For"] += chasing_runs
+        sim_table.loc[winner, "Overs For"] += overs_used
+        sim_table.loc[winner, "Runs Against"] += first_innings_runs
+        sim_table.loc[winner, "Overs Against"] += 20.0
+
+        sim_table.loc[loser, "Runs For"] += first_innings_runs
+        sim_table.loc[loser, "Overs For"] += 20.0
+        sim_table.loc[loser, "Runs Against"] += chasing_runs
+        sim_table.loc[loser, "Overs Against"] += overs_used
+
+    elif outcome['result'] == "Tie":
+        sim_table.loc[t1, "T"] += 1
+        sim_table.loc[t2, "T"] += 1
+        sim_table.loc[t1, "PT"] += 2
+        sim_table.loc[t2, "PT"] += 2
+
+    elif outcome['result'] == "No Result":
+        sim_table.loc[t1, "N/R"] += 1
+        sim_table.loc[t2, "N/R"] += 1
+        sim_table.loc[t1, "PT"] += 2
+        sim_table.loc[t2, "PT"] += 2
+
+# ----------------------------
+# Final Display
+# ----------------------------
+sim_table["NRR"] = sim_table.apply(lambda row:
+    calculate_nrr(row['Runs For'], cricket_balls_from_overs(row['Overs For']),
+                  row['Runs Against'], cricket_balls_from_overs(row['Overs Against'])), axis=1)
+
+final_display = sim_table.reset_index()
+final_display = final_display.sort_values(by=["PT", "NRR"], ascending=[False, False]).reset_index(drop=True)
+final_display.index += 1
+
+st.markdown("### 🔮 Projected Table")
+st.dataframe(final_display.style.format({
+    "M": "{:.0f}", "W": "{:.0f}", "L": "{:.0f}", "T": "{:.0f}", "N/R": "{:.0f}", "PT": "{:.0f}", "NRR": "{:.3f}"
+}))
+
+# Steelbacks Qualification Check
+steelbacks_index = final_display.index[final_display['Team'] == "Northamptonshire Steelbacks Men"].tolist()
+if not steelbacks_index:
+    st.markdown("❌ Steelbacks not found in updated table")
+else:
+    rank = steelbacks_index[0] + 1
+    if rank <= 4:
+        st.markdown(f"✅ **Northamptonshire Steelbacks Men QUALIFY** in position **{rank}** 🎉")
     else:
-        rank = steelbacks_index[0] + 1
-        if rank <= 4:
-            st.markdown(f"✅ **Northamptonshire Steelbacks Men QUALIFY**, finishing **{rank}** 🎉")
-        else:
-            st.markdown(f"❌ **Northamptonshire Steelbacks Men DO NOT QUALIFY**, finishing **{rank}**")
+        st.markdown(f"❌ **Northamptonshire Steelbacks Men DO NOT QUALIFY**, finishing **{rank}**")
 
-    # CSV download
-    csv = updated_table.to_csv(index=False).encode('utf-8')
-    st.download_button(
-        label="📥 Download Updated Table as CSV",
-        data=csv,
-        file_name="updated_simulated_table.csv",
-        mime="text/csv"
-    )
+# Download Option
+csv = final_display.to_csv(index=False).encode('utf-8')
+st.download_button("📥 Download Projected Table", data=csv, file_name='projected_table.csv', mime='text/csv')
