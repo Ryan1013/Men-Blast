@@ -4,7 +4,7 @@ import numpy as np
 from io import StringIO
 
 # Load current standings
-current_table = pd.read_csv("current_table_men.csv")
+current_table = pd.read_csv("current_table.csv")
 
 # Set page config
 st.set_page_config(page_title="Northamptonshire Qualification Simulator", layout="wide")
